@@ -1,0 +1,147 @@
+---
+- name: Configure EC2 Instance and Build Custom AMI
+  hosts: all
+  become: true
+  vars:
+    app_zip_source: "/Users/rasika/Desktop/TELE6420/Project/app.zip"
+    app_destination: "/home/app"
+    log_file: "/var/log/app.log"
+    systemd_service: "/home/app/app.service"
+    ami_name: "Tele6420-{{ ansible_date_time.date }}"
+    region: "us-east-1"
+    aws_profile: "tele6420"
+
+  tasks:
+    - name: Update and upgrade system packages
+      apt:
+        update_cache: yes
+        upgrade: dist
+
+    - name: Install required packages
+      apt:
+        name:
+          - unzip
+          - python3
+          - python3-pip
+          - postgresql-client
+        state: present
+    
+    - name: Install PostgreSQL development libraries
+      apt:
+        name:
+          - libpq-dev
+          - gcc
+        state: present
+
+    - name: Create a system user for the application
+      user:
+        name: tele6420
+        system: yes
+        shell: /usr/sbin/nologin
+        create_home: no
+
+    - name: Create application group
+      group:
+        name: tele6420
+
+    - name: Create application directory
+      file:
+        path: "{{ app_destination }}"
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+
+    - name: Copy application archive to destination
+      copy:
+        src: "{{ app_zip_source }}"
+        dest: "{{ app_destination }}/app.zip"
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+
+    - name: Unzip application archive
+      unarchive:
+        src: "{{ app_destination }}/app.zip"
+        dest: "{{ app_destination }}"
+        remote_src: yes
+
+    - name: Install Python dependencies
+      pip:
+        requirements: "{{ app_destination }}/requirements.txt"
+        extra_args: "--break-system-packages --ignore-installed"
+
+    - name: Change ownership of application directory
+      file:
+        path: "{{ app_destination }}"
+        state: directory
+        owner: tele6420
+        group: tele6420
+        recurse: yes
+
+    - name: Create and configure log file
+      file:
+        path: "{{ log_file }}"
+        state: touch
+        owner: tele6420
+        group: tele6420
+        mode: '0755'
+
+    - name: Copy systemd service file for the application
+      copy:
+        src: "{{ systemd_service }}"
+        dest: "/etc/systemd/system/app.service"
+        owner: root
+        group: root
+        mode: '0644'
+        remote_src: yes
+    
+
+    - name: Reload systemd daemon
+      command: systemctl daemon-reload
+
+    - name: Enable and start application service
+      systemd:
+        name: app.service
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+- name: Create AMI from Stopped Instance
+  hosts: localhost
+  gather_facts: false
+  vars:
+    ami_name: "Tele6420-{{ ansible_date_time.date }}"
+    region: "us-east-1"
+    ansible_host_instance_id: "i-0ceb47b676cde4bab"
+    aws_profile: "tele6420"
+
+  tasks:
+    - name: Stop EC2 instance
+      amazon.aws.ec2_instance:
+        instance_ids:
+          - "{{ ansible_host_instance_id }}"
+        state: stopped
+        region: "{{ region }}"
+        profile: tele6420
+        wait: yes
+
+- name: Create AMI from Stopped Instance
+  hosts: localhost
+  gather_facts: true
+  vars:
+    region: "us-east-1"
+    ansible_host_instance_id: "i-0ceb47b676cde4bab"
+    aws_profile: "tele6420"
+
+  tasks:
+    - name: Create AMI from instance
+      amazon.aws.ec2_ami:
+        instance_id: "{{ ansible_host_instance_id }}"
+        name: "Tele6420-{{ ansible_date_time.date }}"
+        region: "{{ region }}"
+        profile: "{{ aws_profile }}"
+        wait: yes
+        tags:
+          Name: "Tele6420-{{ ansible_date_time.date }}"
+          Purpose: "Custom AMI for app"

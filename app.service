@@ -1,0 +1,12 @@
+[Unit]
+Description=Flask Application
+After=network.target
+
+[Service]
+User=tele6420
+Group=tele6420
+WorkingDirectory=/home/app
+ExecStart=python3 /home/app/app.py
+
+[Install]
+WantedBy=multi-user.target
